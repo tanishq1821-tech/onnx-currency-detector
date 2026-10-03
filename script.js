@@ -107,7 +107,7 @@ function processOutput(output, imgWidth, imgHeight) {
     const numClasses = classNames.length;
     const numAnchors = 8400;
     const boxes = [];
-    const confThreshold = 0.35;
+    const confThreshold = 0.70;
 
     for (let i = 0; i < numAnchors; i++) {
         let maxScore = -Infinity;
