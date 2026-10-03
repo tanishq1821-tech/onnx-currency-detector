@@ -1,125 +1,92 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Currency Vision — Local AI Denomination Identification</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>INR Currency Detector — Client-Side AI</title>
   
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  
-  <!-- Custom Styling -->
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    body {
-      font-family: 'Inter', sans-serif;
-      background-color: #0B0F17;
-      color: #F3F4F6;
-    }
-  </style>
-</head>
-<body class="min-h-screen flex flex-col justify-between p-4 md:p-8">
+  <!-- Google Fonts & Lucide Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
 
-  <div class="max-w-6xl mx-auto w-full space-y-6">
+  <!-- ONNX Runtime Web Engine -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
     
-    <!-- HEADER NAVBAR -->
-    <header class="flex flex-col sm:flex-row items-start sm:items-center justify-between p-6 bg-slate-900/60 border border-slate-800 rounded-2xl backdrop-blur-md gap-4">
-      <div class="flex items-center space-x-4">
-        <div class="p-3 bg-blue-600/20 border border-blue-500/30 text-blue-400 rounded-xl">
-          <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-          </svg>
-        </div>
+    <!-- Navbar Header -->
+    <header class="header">
+      <div class="brand">
+        <div class="logo-icon"><i data-lucide="scan-line"></i></div>
         <div>
-          <h1 class="text-xl font-bold text-white tracking-wide">Currency Vision</h1>
-          <p class="text-sm text-slate-400">Local AI Denomination Identification</p>
+          <h1>Currency Vision</h1>
+          <p>Local AI Denomination Identification</p>
         </div>
       </div>
-
-      <!-- STATUS BADGE -->
-      <div id="statusBadge" class="flex items-center gap-2 px-4 py-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-400 text-sm font-medium transition-all duration-300">
-        <span class="w-2 h-2 rounded-full bg-current animate-pulse"></span>
+      <div class="badge-status" id="modelStatus">
+        <span class="dot yellow"></span>
         <span id="statusText">Loading AI Model...</span>
       </div>
     </header>
 
-    <!-- MAIN CONTENT GRID -->
-    <main class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Main Content Area -->
+    <main class="main-grid">
       
-      <!-- LEFT PANEL: UPLOAD & RESULTS -->
-      <section class="space-y-6">
-        
-        <!-- DROP ZONE -->
-        <div id="dropZone" class="border-2 border-dashed border-slate-800 hover:border-blue-500/50 bg-slate-900/40 rounded-2xl p-8 text-center transition-all cursor-pointer group flex flex-col items-center justify-center min-h-[280px]">
-          <input type="file" id="imageInput" accept="image/*" class="hidden">
-          
-          <div class="p-4 bg-slate-800/60 border border-slate-700/50 rounded-2xl mb-4 group-hover:scale-105 transition-transform text-blue-400">
-            <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-            </svg>
-          </div>
-          
-          <h2 class="text-base font-semibold text-slate-200">Upload Banknote</h2>
-          <p class="text-sm text-slate-400 mt-1">
-            Drag & drop or <span class="text-blue-400 font-medium">browse</span> an image of an Indian Currency note.
-          </p>
-          <p class="text-xs text-slate-500 mt-2">Supports JPG, PNG, WEBP (Max 10MB)</p>
-        </div>
+      <!-- Upload & Controls Card -->
+      <section class="card upload-card">
+        <h2><i data-lucide="upload-cloud"></i> Upload Banknote</h2>
+        <p class="subtitle">Drag & drop or select an image of an Indian Currency note.</p>
 
-        <!-- DETECTION RESULTS CONTAINER -->
-        <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-sm font-semibold tracking-wider text-slate-400 uppercase">Detection Results</h3>
-            <span id="noteCount" class="text-xs font-semibold px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-lg text-slate-300">0 Notes</span>
-          </div>
-
-          <div id="resultsContainer" class="flex flex-wrap gap-2 min-h-[48px] items-center">
-            <p class="text-sm text-slate-500 italic">Upload an image to perform real-time detection.</p>
+        <div class="drop-zone" id="dropZone">
+          <input type="file" id="uploadInput" accept="image/*" hidden />
+          <div class="drop-content">
+            <div class="upload-icon-wrapper">
+              <i data-lucide="image-plus"></i>
+            </div>
+            <p class="drop-title">Drop your image here, or <span>browse</span></p>
+            <p class="drop-hint">Supports JPG, PNG, WEBP (Max 10MB)</p>
           </div>
         </div>
 
+        <!-- Detection Summary Card -->
+        <div class="result-box" id="resultBox">
+          <div class="result-header">
+            <h3>Detection Results</h3>
+            <span class="count-badge" id="detectionCount">0 Notes</span>
+          </div>
+          <div class="result-body" id="resultText">
+            <span class="placeholder-text">Upload an image to perform real-time detection.</span>
+          </div>
+        </div>
       </section>
 
-      <!-- RIGHT PANEL: DETECTION CANVAS OUTPUT -->
-      <section class="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between space-y-4">
+      <!-- Visualizer / Canvas Card -->
+      <section class="card preview-card">
+        <div class="preview-header">
+          <h2><i data-lucide="eye"></i> Detection Output</h2>
+          <button class="btn-clear" id="resetBtn"><i data-lucide="rotate-ccw"></i> Reset</button>
+        </div>
         
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-            </svg>
-            <h2 class="text-base font-semibold text-slate-200">Detection Output</h2>
+        <div class="canvas-wrapper">
+          <div class="empty-state" id="emptyState">
+            <i data-lucide="banknote"></i>
+            <p>No image loaded yet</p>
           </div>
-
-          <button id="resetBtn" class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium rounded-xl border border-slate-700 transition">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-            Reset
-          </button>
+          <canvas id="canvas"></canvas>
         </div>
-
-        <!-- CANVAS WRAPPER -->
-        <div class="relative w-full aspect-video bg-black/40 border border-slate-800 rounded-xl overflow-hidden flex items-center justify-center">
-          <canvas id="outputCanvas" class="max-w-full max-h-full object-contain"></canvas>
-          <div id="canvasPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center text-slate-600 space-y-2">
-            <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-            </svg>
-            <span class="text-sm">No image loaded yet</span>
-          </div>
-        </div>
-
       </section>
 
     </main>
-
   </div>
 
-  <!-- ONNX RUNTIME WEB CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort.min.js"></script>
-  <!-- MAIN INFERENCE SCRIPT -->
-  <script src="script.js" defer></script>
+  <script src="script.js"></script>
+  <script>
+    lucide.createIcons();
+  </script>
 </body>
 </html>
