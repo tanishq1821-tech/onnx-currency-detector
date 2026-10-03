@@ -1,5 +1,5 @@
 /**
- * Currency Vision - ONNX Web Runtime Script
+ * Currency Vision — Inference Pipeline (onnxruntime-web)
  */
 
 // --- CONFIGURATION ---
@@ -7,11 +7,11 @@ const MODEL_PATH = './best.onnx';
 const INPUT_WIDTH = 640;
 const INPUT_HEIGHT = 640;
 
-// Filtering Thresholds to reduce false positives
-const CONF_THRESHOLD = 0.70;      // Confidence cutoff (0.70+)
-const NMS_THRESHOLD = 0.45;       // Non-Maximum Suppression overlap threshold
-const MIN_ASPECT_RATIO = 1.5;    // Indian notes aspect ratio min (W/H or H/W)
-const MAX_ASPECT_RATIO = 2.7;    // Indian notes aspect ratio max
+// Filters to eliminate false positives
+const CONF_THRESHOLD = 0.70;      // 70%+ confidence threshold
+const NMS_THRESHOLD = 0.45;       // IoU threshold for Non-Maximum Suppression
+const MIN_ASPECT_RATIO = 1.5;    // Minimum long-side/short-side aspect ratio
+const MAX_ASPECT_RATIO = 2.7;    // Maximum aspect ratio
 const MIN_AREA_RATIO = 0.015;     // Minimum box area relative to image (1.5%)
 
 const LABELS = [
@@ -21,23 +21,29 @@ const LABELS = [
 
 let session = null;
 
-// Configure ONNX Web WASM path explicitly
-if (window.ort) {
-  ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/';
-}
-
-// UI Elements
-const imageInput = document.getElementById('imageInput') || document.querySelector('input[type="file"]');
-const canvas = document.getElementById('outputCanvas') || document.querySelector('canvas');
-const dropZone = document.getElementById('dropZone') || document.querySelector('.upload-box') || document.body;
-const statusBadge = document.querySelector('.status-badge') || document.getElementById('statusBadge');
+// DOM Elements
+const imageInput = document.getElementById('imageInput');
+const dropZone = document.getElementById('dropZone');
+const canvas = document.getElementById('outputCanvas');
+const canvasPlaceholder = document.getElementById('canvasPlaceholder');
+const statusBadge = document.getElementById('statusBadge');
+const statusText = document.getElementById('statusText');
 const resultsContainer = document.getElementById('resultsContainer');
+const noteCount = document.getElementById('noteCount');
+const resetBtn = document.getElementById('resetBtn');
 
-// --- INITIALIZE MODEL ---
+// --- INITIALIZE ONNX MODEL ---
 async function initModel() {
   try {
     updateStatus('Loading AI Model...', 'loading');
-    console.log('Loading ONNX model...');
+    
+    // Explicitly configure WASM path for onnxruntime-web
+    if (window.ort) {
+      ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/';
+      ort.env.wasm.numThreads = 1;
+    }
+
+    console.log('Loading ONNX model from:', MODEL_PATH);
     
     session = await ort.InferenceSession.create(MODEL_PATH, {
       executionProviders: ['wasm'],
@@ -52,34 +58,23 @@ async function initModel() {
 }
 
 function updateStatus(text, state) {
+  if (statusText) statusText.innerText = text;
   if (!statusBadge) return;
-  statusBadge.innerText = text;
-  
+
   if (state === 'ready') {
-    statusBadge.style.color = '#10B981';
-    statusBadge.style.borderColor = '#10B981';
+    statusBadge.className = "flex items-center gap-2 px-4 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-sm font-medium";
   } else if (state === 'error') {
-    statusBadge.style.color = '#EF4444';
-    statusBadge.style.borderColor = '#EF4444';
+    statusBadge.className = "flex items-center gap-2 px-4 py-1.5 rounded-full border border-red-500/30 bg-red-500/10 text-red-400 text-sm font-medium";
   } else {
-    statusBadge.style.color = '#F59E0B';
-    statusBadge.style.borderColor = '#F59E0B';
+    statusBadge.className = "flex items-center gap-2 px-4 py-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-400 text-sm font-medium";
   }
 }
 
-// Start model initialization on load
 initModel();
 
 // --- EVENT LISTENERS ---
-if (imageInput) {
-  imageInput.addEventListener('change', (e) => {
-    if (e.target.files && e.target.files[0]) {
-      processImage(e.target.files[0]);
-    }
-  });
-}
-
 if (dropZone) {
+  dropZone.addEventListener('click', () => imageInput && imageInput.click());
   dropZone.addEventListener('dragover', (e) => e.preventDefault());
   dropZone.addEventListener('drop', (e) => {
     e.preventDefault();
@@ -89,10 +84,33 @@ if (dropZone) {
   });
 }
 
-// --- MAIN IMAGE PIPELINE ---
+if (imageInput) {
+  imageInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) {
+      processImage(e.target.files[0]);
+    }
+  });
+}
+
+if (resetBtn) {
+  resetBtn.addEventListener('click', resetUI);
+}
+
+function resetUI() {
+  if (canvas) {
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+  if (canvasPlaceholder) canvasPlaceholder.style.display = 'flex';
+  if (resultsContainer) resultsContainer.innerHTML = '<p class="text-sm text-slate-500 italic">Upload an image to perform real-time detection.</p>';
+  if (noteCount) noteCount.innerText = '0 Notes';
+  if (imageInput) imageInput.value = '';
+}
+
+// --- IMAGE PIPELINE ---
 async function processImage(file) {
   if (!session) {
-    alert('Model is still loading or failed to load. Please refresh the page.');
+    alert('Model is still loading or failed to initialize. Please check browser console.');
     return;
   }
 
@@ -100,33 +118,26 @@ async function processImage(file) {
   img.src = URL.createObjectURL(file);
 
   img.onload = async () => {
-    if (canvas) {
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-    }
+    if (canvasPlaceholder) canvasPlaceholder.style.display = 'none';
 
-    // 1. Preprocess Image to Tensor
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+
+    // 1. Preprocess
     const [tensor, scale, padX, padY] = preprocess(img);
 
-    // 2. Run Inference
+    // 2. Inference
     const feeds = {};
     feeds[session.inputNames[0]] = tensor;
     const results = await session.run(feeds);
     const outputTensor = results[session.outputNames[0]];
 
-    // 3. Postprocess Output
-    const detections = postprocess(
-      outputTensor, 
-      scale, 
-      padX, 
-      padY, 
-      img.width, 
-      img.height
-    );
+    // 3. Postprocess
+    const detections = postprocess(outputTensor, scale, padX, padY, img.width, img.height);
 
-    // 4. Render Detections
+    // 4. Render
     renderDetections(img, detections);
   };
 }
@@ -138,7 +149,6 @@ function preprocess(img) {
   canvasPre.height = INPUT_HEIGHT;
   const ctxPre = canvasPre.getContext('2d');
 
-  // Letterbox scaling
   const scale = Math.min(INPUT_WIDTH / img.width, INPUT_HEIGHT / img.height);
   const newW = img.width * scale;
   const newH = img.height * scale;
@@ -168,7 +178,7 @@ function preprocess(img) {
 // --- POSTPROCESSING ---
 function postprocess(outputTensor, scale, padX, padY, origW, origH) {
   const rawData = outputTensor.data;
-  const [batch, channels, numBoxes] = outputTensor.dims; // e.g. [1, 13, 8400]
+  const [batch, channels, numBoxes] = outputTensor.dims; // e.g., [1, 13, 8400]
   const numClasses = channels - 4;
 
   let candidates = [];
@@ -185,16 +195,14 @@ function postprocess(outputTensor, scale, padX, padY, origW, origH) {
       }
     }
 
-    // Confidence filter
+    // 1. Confidence Threshold
     if (maxClassScore < CONF_THRESHOLD) continue;
 
-    // Dimensions
     const cx = rawData[0 * numBoxes + i];
     const cy = rawData[1 * numBoxes + i];
     const w = rawData[2 * numBoxes + i];
     const h = rawData[3 * numBoxes + i];
 
-    // Scale back to original coordinates
     let x1 = (cx - w / 2 - padX) / scale;
     let y1 = (cy - h / 2 - padY) / scale;
     let boxW = w / scale;
@@ -205,20 +213,16 @@ function postprocess(outputTensor, scale, padX, padY, origW, origH) {
     boxW = Math.min(boxW, origW - x1);
     boxH = Math.min(boxH, origH - y1);
 
-    // Aspect Ratio Filter (Long side / Short side)
+    // 2. Aspect Ratio Filter
     const longSide = Math.max(boxW, boxH);
     const shortSide = Math.min(boxW, boxH);
     const aspectRatio = longSide / Math.max(shortSide, 1e-6);
 
-    if (aspectRatio < MIN_ASPECT_RATIO || aspectRatio > MAX_ASPECT_RATIO) {
-      continue; // Filter circular icons/badges or irregular shapes
-    }
+    if (aspectRatio < MIN_ASPECT_RATIO || aspectRatio > MAX_ASPECT_RATIO) continue;
 
-    // Minimum Area Filter
+    // 3. Minimum Area Filter
     const boxAreaRatio = (boxW * boxH) / (origW * origH);
-    if (boxAreaRatio < MIN_AREA_RATIO) {
-      continue;
-    }
+    if (boxAreaRatio < MIN_AREA_RATIO) continue;
 
     candidates.push({
       box: [x1, y1, boxW, boxH],
@@ -269,41 +273,44 @@ function calculateIoU(boxA, boxB) {
 
 // --- RENDERING ---
 function renderDetections(img, detections) {
-  if (!canvas) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(img, 0, 0);
 
-  if (resultsContainer) {
-    resultsContainer.innerHTML = '';
-  }
+  if (resultsContainer) resultsContainer.innerHTML = '';
+  if (noteCount) noteCount.innerText = `${detections.length} Notes`;
 
   if (detections.length === 0) {
     if (resultsContainer) {
-      resultsContainer.innerHTML = '<p class="text-gray-400">No valid currency detected.</p>';
+      resultsContainer.innerHTML = '<p class="text-sm text-slate-400">No valid banknote detected.</p>';
     }
     return;
   }
 
   detections.forEach((det) => {
     const [x, y, w, h] = det.box;
-    const labelText = `₹${det.label.replace('_', ' ')} (${(det.score * 100).toFixed(1)}%)`;
+    const cleanLabel = det.label.replace('_', ' ');
+    const labelText = `₹${cleanLabel} (${(det.score * 100).toFixed(1)}%)`;
 
+    // Draw Bounding Box
     ctx.strokeStyle = '#10B981';
-    ctx.lineWidth = Math.max(2, Math.round(canvas.width / 300));
+    ctx.lineWidth = Math.max(3, Math.round(canvas.width / 250));
     ctx.strokeRect(x, y, w, h);
 
-    ctx.font = '16px Inter, sans-serif';
+    // Draw Text Background
+    ctx.font = '600 16px Inter, sans-serif';
     const textWidth = ctx.measureText(labelText).width;
     ctx.fillStyle = '#10B981';
-    ctx.fillRect(x, y > 25 ? y - 25 : y, textWidth + 10, 25);
+    ctx.fillRect(x, y > 30 ? y - 30 : y, textWidth + 12, 30);
 
+    // Draw Text
     ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(labelText, x + 5, y > 25 ? y - 7 : y + 18);
+    ctx.fillText(labelText, x + 6, y > 30 ? y - 9 : y + 20);
 
+    // Results Badge UI
     if (resultsContainer) {
       const badge = document.createElement('div');
-      badge.className = 'inline-block bg-emerald-900/40 border border-emerald-500/50 text-emerald-400 px-3 py-1 rounded-lg text-sm font-medium mr-2 mb-2';
+      badge.className = 'inline-flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-xl text-sm font-semibold';
       badge.innerText = labelText;
       resultsContainer.appendChild(badge);
     }
